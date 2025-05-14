@@ -1,19 +1,33 @@
+mod responses;
+mod state;
 mod config;
 mod routes;
+pub mod utils;
 
 use axum::{
     routing::{get, post},
-    Router
+    Router,
+    response::{
+        Response, IntoResponse
+    }
 };
-use http::{Method, header::HeaderValue};
+use http::Method;
+use http::header::{AUTHORIZATION, CONTENT_TYPE};
+use http::HeaderValue;
+use responses::JsonResponse;
 use sqlx::PgPool;
-use std::net::SocketAddr;
+use tokio::net::TcpListener;
+use std::{sync::Arc, net::SocketAddr};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
-use tower_http::cors::{CorsLayer, Any};
-
+use tower_http::cors::CorsLayer;
+use tower::ServiceBuilder;
 use config::Config;
 use routes::early_access::handle_early_access;
+use routes::auth::{handle_login, handle_signup, verify_email};
+
+use crate::utils::email::Mailer;
+use crate::state::AppState;
 
 #[tokio::main]
 async fn main() {
@@ -22,36 +36,48 @@ async fn main() {
         .finish();
     tracing::subscriber::set_global_default(subscriber).unwrap();
 
-    let cfg = Config::from_env();
+    let config = Config::from_env();
+    let pool = establish_connection(&config.database_url).await;
 
-    let pool = establish_connection().await;
+    // Initialize mailer
+    let mailer = Arc::new(Mailer::new().expect("Failed to initialize mailer"));
+
+    let state = AppState {
+        db: pool.clone(),
+        mailer,
+    };
 
     let cors = CorsLayer::new()
-        .allow_origin([HeaderValue::from_str(&cfg.frontend_origin).unwrap()])
+        .allow_origin(config.frontend_origin.parse::<HeaderValue>().expect("Invalid FRONTEND_ORIGIN"))
         .allow_methods([Method::GET, Method::POST])
-        .allow_headers(Any);
+        .allow_headers([AUTHORIZATION, CONTENT_TYPE])
+        .allow_credentials(true);
 
     let app = Router::new()
         .route("/", get(root))
         .route("/api/early-access", post(handle_early_access))
-        .with_state(pool); // ✅ attach state here
+        .route("/api/auth/signup", post(handle_signup))
+        .route("/api/auth/login", post(handle_login))
+        .route("/api/auth/verify", post(verify_email))
+        .with_state(state);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
-    info!("Listening on http://{}", addr);
-    axum::Server::bind(&addr)
-        .serve(app.into_make_service())
+    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let listener = TcpListener::bind(addr).await.unwrap();
+
+    axum::serve(addr, ServiceBuilder::new()
+            .layer(cors)
+            .service(app.into_make_service()))
         .await
         .unwrap();
 }
-
-async fn root() -> &'static str {
-    "Hello, Dsentr!"
+/// A simple root route.
+async fn root() -> Response {
+    JsonResponse::success("Hello, Dsentr!").into_response()
 }
 
-async fn establish_connection() -> PgPool {
-    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-
-    let pool = PgPool::connect(&database_url)
+/// Establish a connection to the database and verify it.
+async fn establish_connection(database_url: &str) -> PgPool {
+    let pool = PgPool::connect(database_url)
         .await
         .expect("Failed to connect to the database");
 
