@@ -20,13 +20,6 @@ impl JsonResponse {
         )
     }
 
-    pub fn success_json(data: serde_json::Value) -> impl IntoResponse {
-        (
-            StatusCode::OK,
-            Json(serde_json::json!({ "success": true, "data": data })),
-        )
-    }
-
     pub fn conflict(msg: &str) -> impl IntoResponse {
         (
             StatusCode::CONFLICT,

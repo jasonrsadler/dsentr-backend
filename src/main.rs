@@ -3,13 +3,12 @@ mod state;
 mod config;
 mod routes;
 pub mod utils;
+mod models;
 
 use axum::{
-    routing::{get, post},
-    Router,
     response::{
-        Response, IntoResponse
-    }
+        IntoResponse, Response
+    }, routing::{get, post}, Router
 };
 use axum::http::Method;
 use axum::http::header::{AUTHORIZATION, CONTENT_TYPE};
@@ -22,11 +21,14 @@ use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
 use tower_http::cors::CorsLayer;
 use config::Config;
-use routes::early_access::handle_early_access;
+use routes::{auth::{handle_logout, handle_me}, dashboard::dashboard_handler, early_access::handle_early_access};
 use routes::auth::{handle_login, handle_signup, verify_email};
 
 use crate::utils::email::Mailer;
 use crate::state::AppState;
+
+#[cfg(feature = "tls")]
+use axum_server::tls_rustls::RustlsConfig;
 
 #[tokio::main]
 async fn main() {
@@ -57,14 +59,34 @@ async fn main() {
         .route("/api/early-access", post(handle_early_access))
         .route("/api/auth/signup", post(handle_signup))
         .route("/api/auth/login", post(handle_login))
+        .route("/api/auth/logout", post(handle_logout))
         .route("/api/auth/verify", post(verify_email))
+        .route("/api/auth/me", get(handle_me))
+        .route("/api/dashboard", get(dashboard_handler))
         .with_state(state)
         .layer(cors);
 
     let make_service = app.into_make_service();
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
-    let listener = TcpListener::bind(addr).await.unwrap();
+    #[cfg(feature = "tls")]
+    {
+        // TLS: Only run this block when `--features tls` is used
+        let tls_config = RustlsConfig::from_pem_file(
+                std::env::var("DEV_CERT_LOCATION").unwrap(), 
+                std::env::var("DEV_KEY_LOCATION").unwrap())
+            .await
+            .expect("Failed to load TLS certs");
 
+        println!("Running with TLS at https://{}", addr);
+        let _ = axum_server::bind_rustls(addr, tls_config)
+            .serve(make_service)
+            .await;
+
+        return; // Skip the fallback if TLS was used
+    }
+
+    let listener = TcpListener::bind(addr).await.unwrap();
+    println!("Running without TLS at http://{}", addr);
     axum::serve(listener, make_service)
         .await
         .unwrap();
