@@ -21,3 +21,15 @@ pub struct User {
     pub plan: Option<String>,
     pub company_name: Option<String>,
 }
+
+#[derive(Debug, Deserialize, Serialize, sqlx::FromRow)]
+pub struct PublicUser {
+    pub id: uuid::Uuid,
+    pub email: String,
+    pub first_name: String,
+    pub last_name: String,
+    pub role: Option<UserRole>,
+    pub plan: Option<String>,
+    pub company_name: Option<String>
+}
+

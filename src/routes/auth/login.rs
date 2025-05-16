@@ -5,7 +5,8 @@ use axum::{
 };
 use axum_extra::extract::cookie::{Cookie, SameSite};
 use serde_json::{json, to_value};
-use crate::{models::user::User, responses::JsonResponse, state::AppState, utils::{jwt::create_jwt, password::verify_password}};
+use uuid::Uuid;
+use crate::{models::user::{PublicUser, User}, responses::JsonResponse, state::AppState, utils::{jwt::create_jwt, password::verify_password}};
 use crate::routes::auth::claims::Claims;
 use serde::Deserialize;
 use chrono::{Utc, Duration};
@@ -99,9 +100,36 @@ let user = sqlx::query_as::<_, User>(
         }
     }
 }
-pub async fn handle_me(AuthSession(claims): AuthSession) -> impl IntoResponse {
-    Json(json!({
-        "email": claims.email,
-        "name": claims.first_name + " " + &claims.last_name,
-    }))
+
+pub async fn handle_me(
+    State(app_state): State<AppState>,
+    AuthSession(claims): AuthSession,
+) -> Response {
+    let pool = &app_state.db;
+    let user_id = match Uuid::parse_str(&claims.id) {
+        Ok(id) => id,
+        Err(_) => return JsonResponse::unauthorized("Invalid user ID").into_response(),
+    };
+
+    let user = sqlx::query_as::<_, PublicUser>(
+        "SELECT id, email, first_name, last_name, role, plan, company_name FROM users WHERE id = $1"
+    )
+    .bind(&user_id)
+    .fetch_optional(pool)
+    .await;
+
+    match user {
+        Ok(Some(user)) => {
+            let user_json = to_value(&user).expect("User serialization failed");
+            Json(json!({
+                "success": true,
+                "user": user_json
+            })).into_response()
+        }
+        Ok(None) => JsonResponse::unauthorized("User not found").into_response(),
+        Err(e) => {
+            eprintln!("DB error in handle_me: {:?}", e);
+            JsonResponse::server_error("Database error").into_response()
+        }
+    }
 }
