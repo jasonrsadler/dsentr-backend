@@ -16,12 +16,19 @@ use axum::http::HeaderValue;
 use responses::JsonResponse;
 use sqlx::PgPool;
 use tokio::net::TcpListener;
-use std::{sync::Arc, net::SocketAddr};
+use tower_governor::{
+    governor::GovernorConfigBuilder, 
+    GovernorLayer
+};
+use std::{net::SocketAddr, sync::Arc};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
-use tower_http::cors::CorsLayer;
+use tower_http::{
+    trace::TraceLayer,
+    cors::CorsLayer
+};
 use config::Config;
-use routes::{auth::{handle_logout, handle_me}, dashboard::dashboard_handler, early_access::handle_early_access};
+use routes::{auth::{forgot_password::handle_forgot_password, handle_logout, handle_me, reset_password::{handle_reset_password, handle_verify_token}}, dashboard::dashboard_handler, early_access::handle_early_access};
 use routes::auth::{handle_login, handle_signup, verify_email};
 
 use crate::utils::email::Mailer;
@@ -37,6 +44,56 @@ async fn main() {
         .finish();
     tracing::subscriber::set_global_default(subscriber).unwrap();
 
+    let governor_conf = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(1) // 2 req/sec
+            .burst_size(5)
+            .use_headers() // optional: adds RateLimit-* headers
+            .finish()
+            .unwrap(),
+    );
+
+    // ✅ Background task to cleanup old IPs
+    let governor_limiter = governor_conf.limiter().clone();
+    std::thread::spawn(move || {
+        let interval = std::time::Duration::from_secs(60);
+        loop {
+            std::thread::sleep(interval);
+            tracing::info!("Rate limiting map size: {}", governor_limiter.len());
+            governor_limiter.retain_recent();
+        }
+    });
+
+    let global_governor_conf = Arc::new(
+    GovernorConfigBuilder::default()
+        
+        .per_millisecond(500)
+        .burst_size(8)
+        .use_headers()
+        .error_handler(|_err| {
+            JsonResponse::too_many_requests(
+                "Too many requests. Please wait a moment and try again."
+            ).into_response()
+        })
+        .finish()
+        .unwrap(),
+    );
+
+    // Stricter limiter for /api/auth/*
+    let auth_governor_conf = Arc::new(
+    GovernorConfigBuilder::default()
+        .per_second(4)              // 60s window
+        .burst_size(2)                                // allow up to 10 requests per IP
+        .use_headers()                                 // optional: includes rate limit headers
+        .error_handler(|_err| {
+            JsonResponse::too_many_requests(
+                "Too many requests. Please wait a moment and try again."
+            ).into_response()
+        })
+        .finish()
+        .unwrap(),
+    );
+ 
     let config = Config::from_env();
     let pool = establish_connection(&config.database_url).await;
 
@@ -54,19 +111,35 @@ async fn main() {
         .allow_headers([AUTHORIZATION, CONTENT_TYPE])
         .allow_credentials(true);
 
+    // Auth sub-router
+    let auth_routes = Router::new()
+        .route("/signup", post(handle_signup))
+        .route("/login", post(handle_login))
+        .route("/logout", post(handle_logout))
+        .route("/verify", post(verify_email))
+        .route("/me", get(handle_me))
+        .route("/forgot-password", post(handle_forgot_password))
+        .route("/verify-reset-token/{token}", get(handle_verify_token))
+        .route("/reset-password", post(handle_reset_password))
+        .layer(GovernorLayer {
+            config: auth_governor_conf.clone(),
+        });
+
+    // Full router
     let app = Router::new()
         .route("/", get(root))
         .route("/api/early-access", post(handle_early_access))
-        .route("/api/auth/signup", post(handle_signup))
-        .route("/api/auth/login", post(handle_login))
-        .route("/api/auth/logout", post(handle_logout))
-        .route("/api/auth/verify", post(verify_email))
-        .route("/api/auth/me", get(handle_me))
         .route("/api/dashboard", get(dashboard_handler))
+        .nest("/api/auth", auth_routes) // <-- Nest auth routes with their own rate limiter
         .with_state(state)
+        .layer(TraceLayer::new_for_http())
+        .layer(GovernorLayer {
+            config: global_governor_conf.clone(),
+        })
         .layer(cors);
 
-    let make_service = app.into_make_service();
+    let make_service = 
+        app.into_make_service_with_connect_info::<SocketAddr>();
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     #[cfg(feature = "tls")]
     {

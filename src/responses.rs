@@ -63,4 +63,15 @@ impl JsonResponse {
             }),
         )
     }
+
+    pub fn too_many_requests(msg: &str) -> impl IntoResponse {
+        (
+            StatusCode::TOO_MANY_REQUESTS,
+            Json(JsonResponse {
+                status: "error".to_string(),
+                success: false,
+                message: msg.to_string(),
+            }),
+        )
+    }
 }

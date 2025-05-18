@@ -76,5 +76,33 @@ impl Mailer {
         self.transport.send(email).await.map(|_| ()).map_err(|e| e.into())
     }
 
-    
+    pub async fn send_reset_email(
+        &self,
+        to: &str,
+        token: &str,
+    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let dev_mode = std::env::var("DEV_MODE")
+            .unwrap_or_else(|_| "false".to_string())
+            .to_lowercase() == "true";
+        let reset_link = if dev_mode {
+            std::env::var("FRONTEND_ORIGIN").unwrap()
+                + &std::env::var("RESET_PASSWORD_PATH").unwrap()
+        } else {
+            std::env::var("FRONTEND_ORIGIN_PROD").unwrap()
+                + &std::env::var("RESET_PASSWORD_PATH").unwrap()
+        };
+
+        let full_url = format!("{}{}", reset_link, token);
+
+        let email = Message::builder()
+            .from(self.sender.clone())
+            .to(to.parse()?)
+            .subject("Reset your password")
+            .body(format!(
+                "You requested to reset your password.\n\nReset here:\n{}\n\nThis link will expire in 30 minutes.",
+                full_url
+            ))?;
+
+        self.transport.send(email).await.map(|_| ()).map_err(|e| e.into())
+    }
 }
