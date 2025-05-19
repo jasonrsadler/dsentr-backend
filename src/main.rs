@@ -30,7 +30,18 @@ use tower_http::{
     cors::CorsLayer
 };
 use config::Config;
-use routes::{auth::{forgot_password::handle_forgot_password, handle_logout, handle_me, reset_password::{handle_reset_password, handle_verify_token}}, dashboard::dashboard_handler, early_access::handle_early_access};
+use routes::{
+    auth::{
+        forgot_password::handle_forgot_password, github_login::{github_callback, github_login}, google_login::{
+            google_callback, google_login
+        }, handle_logout, handle_me, reset_password::{
+            handle_reset_password, 
+            handle_verify_token
+        }
+    }, 
+    dashboard::dashboard_handler, 
+    early_access::handle_early_access
+};
 use routes::auth::{handle_login, handle_signup, verify_email};
 
 use crate::utils::email::Mailer;
@@ -61,16 +72,24 @@ async fn main() {
         let interval = std::time::Duration::from_secs(60);
         loop {
             std::thread::sleep(interval);
-            tracing::info!("Rate limiting map size: {}", governor_limiter.len());
+            //tracing::info!("Rate limiting map size: {}", governor_limiter.len());
             governor_limiter.retain_recent();
         }
     });
 
+    let rate_limit_ms: u64 = std::env::var("RATE_LIMITER_MILLISECONDS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(500);
+    let rate_limit_burst: u32 = std::env::var("RATE_LIMITER_BURST")
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+        .unwrap_or(8);
     let global_governor_conf = Arc::new(
     GovernorConfigBuilder::default()
         
-        .per_millisecond(500)
-        .burst_size(8)
+        .per_millisecond(rate_limit_ms)
+        .burst_size(rate_limit_burst)
         .use_headers()
         .error_handler(|_err| {
             JsonResponse::too_many_requests(
@@ -81,12 +100,20 @@ async fn main() {
         .unwrap(),
     );
 
+    let rate_limit_auth_s: u64 = std::env::var("RATE_LIMITER_AUTH_SECONDS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(1);
+    let rate_limit_auth_burst: u32 = std::env::var("RATE_LIMITER_AUTH_BURST")
+        .ok()
+        .and_then(|v| v.parse::<u32>().ok())
+        .unwrap_or(10);
     // Stricter limiter for /api/auth/*
     let auth_governor_conf = Arc::new(
     GovernorConfigBuilder::default()
-        .per_second(4)              // 60s window
-        .burst_size(4)                                // allow up to 10 requests per IP
-        .use_headers()                                 // optional: includes rate limit headers
+        .per_second(rate_limit_auth_s)              
+        .burst_size(rate_limit_auth_burst)                                
+        .use_headers()                                 
         .error_handler(|_err| {
             JsonResponse::too_many_requests(
                 "Too many requests. Please wait a moment and try again."
@@ -135,7 +162,10 @@ async fn main() {
     let unprotected_routes = Router::new()
         .route("/me", get(handle_me))
         .route("/csrf-token", get(get_csrf_token))
-        //.route("/google-login", get(google_login))
+        .route("/google-login", get(google_login))
+        .route("/github-login", get(github_login))
+        .route("/google-callback", get(google_callback))
+        .route("/github-callback", get(github_callback))
         .route("/verify-reset-token/{token}", get(handle_verify_token));
 
     // Nest them together

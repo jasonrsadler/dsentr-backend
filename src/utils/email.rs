@@ -53,16 +53,9 @@ impl Mailer {
         to: &str,
         token: &str,
     ) -> Result<(), Box<dyn  std::error::Error + Send + Sync>> {
-        let dev_mode = std::env::var("DEV_MODE")
-            .unwrap_or_else(|_| "false".to_string())
-            .to_lowercase() == "true";
-        let verify_link = if dev_mode {
+        let verify_link = 
             std::env::var("FRONTEND_ORIGIN").unwrap() + 
-            &std::env::var("EMAIL_VERIFICATION_PATH").unwrap()
-        } else {
-           std::env::var("FRONTEND_ORIGIN_PROD").unwrap() + 
-           &std::env::var("EMAIL_VERIFICATION_PATH").unwrap()
-        };
+            &std::env::var("EMAIL_VERIFICATION_PATH").unwrap();
         let email = Message::builder()
             .from(self.sender.clone())
             .to(to.parse()?)
@@ -81,16 +74,9 @@ impl Mailer {
         to: &str,
         token: &str,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let dev_mode = std::env::var("DEV_MODE")
-            .unwrap_or_else(|_| "false".to_string())
-            .to_lowercase() == "true";
-        let reset_link = if dev_mode {
+        let reset_link =
             std::env::var("FRONTEND_ORIGIN").unwrap()
-                + &std::env::var("RESET_PASSWORD_PATH").unwrap()
-        } else {
-            std::env::var("FRONTEND_ORIGIN_PROD").unwrap()
-                + &std::env::var("RESET_PASSWORD_PATH").unwrap()
-        };
+                + &std::env::var("RESET_PASSWORD_PATH").unwrap();
 
         let full_url = format!("{}{}", reset_link, token);
 

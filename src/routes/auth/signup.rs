@@ -1,14 +1,39 @@
+use core::fmt;
+
 use axum::{
     extract::{Json, State},
     response::{IntoResponse, Response},
 };
 use rand::{distr::Alphanumeric, Rng};
-use serde::Deserialize;
+extern crate serde;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 use time::{OffsetDateTime, Duration};
 
 use crate::{responses::JsonResponse, state};
 use crate::utils::password::hash_password;
+
+#[derive(sqlx::Type, Debug, Deserialize, Serialize)]
+#[sqlx(type_name = "oauth_provider", rename_all = "lowercase")] // match your PostgreSQL type
+#[serde(rename_all = "lowercase")] // <- Ensures it matches JSON like "google"
+pub enum OauthProvider {
+    Google,
+    Github,
+    Apple,
+    Email
+}
+
+impl fmt::Display for OauthProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            OauthProvider::Google => "Google",
+            OauthProvider::Github => "GitHub",
+            OauthProvider::Apple => "Apple",
+            OauthProvider::Email => "Email"
+        };
+        write!(f, "{}", s)
+    }
+}
 
 #[derive(Deserialize)]
 pub struct SignupPayload {
@@ -19,6 +44,8 @@ pub struct SignupPayload {
     pub company_name: Option<String>,
     pub country: Option<String>,
     pub tax_id: Option<String>,
+    #[serde(default)]
+    pub provider: Option<OauthProvider>
 }
 
 pub async fn handle_signup(
@@ -27,7 +54,7 @@ pub async fn handle_signup(
 ) -> Response {
     // Check if email already exists
     let pool = &state.db;
-    let existing_user = sqlx::query_scalar!(
+    let existing_user: Result<Option<Option<i32>>, sqlx::Error> = sqlx::query_scalar!(
         "SELECT 1 FROM users WHERE email = $1",
         payload.email
     )
@@ -54,16 +81,18 @@ pub async fn handle_signup(
         Err(_) => return JsonResponse::server_error("Password hashing failed").into_response(),
     };
 
+    let provider = payload.provider.unwrap_or(OauthProvider::Email);
+
     // Insert user and get ID
     let user_id_result = sqlx::query_scalar!(
         r#"
         INSERT INTO users (
             email, password_hash, first_name, last_name, company_name, country, tax_id,
-            is_verified, is_subscribed, settings, created_at, updated_at
+            is_verified, is_subscribed, settings, created_at, updated_at, oauth_provider
         )
         VALUES (
             $1, $2, $3, $4, $5, $6, $7,
-            false, false, '{}', now(), now()
+            false, false, '{}', now(), now(), $8::oauth_provider
         )
         RETURNING id
         "#,
@@ -74,6 +103,7 @@ pub async fn handle_signup(
         payload.company_name,
         payload.country,
         payload.tax_id,
+        provider as OauthProvider
     )
     .fetch_one(pool)
     .await;
