@@ -6,7 +6,7 @@ pub mod utils;
 mod models;
 
 use axum::{
-    response::{
+    http::HeaderName, response::{
         IntoResponse, Response
     }, routing::{get, post}, Router
 };
@@ -16,10 +16,12 @@ use axum::http::HeaderValue;
 use responses::JsonResponse;
 use sqlx::PgPool;
 use tokio::net::TcpListener;
+use tower::ServiceBuilder;
 use tower_governor::{
     governor::GovernorConfigBuilder, 
     GovernorLayer
 };
+use utils::csrf::{get_csrf_token, validate_csrf};
 use std::{net::SocketAddr, sync::Arc};
 use tracing::{info, Level};
 use tracing_subscriber::FmtSubscriber;
@@ -83,7 +85,7 @@ async fn main() {
     let auth_governor_conf = Arc::new(
     GovernorConfigBuilder::default()
         .per_second(4)              // 60s window
-        .burst_size(2)                                // allow up to 10 requests per IP
+        .burst_size(4)                                // allow up to 10 requests per IP
         .use_headers()                                 // optional: includes rate limit headers
         .error_handler(|_err| {
             JsonResponse::too_many_requests(
@@ -108,35 +110,49 @@ async fn main() {
     let cors = CorsLayer::new()
         .allow_origin(config.frontend_origin.parse::<HeaderValue>().unwrap())
         .allow_methods([Method::GET, Method::POST])
-        .allow_headers([AUTHORIZATION, CONTENT_TYPE])
+        .allow_headers([
+            AUTHORIZATION, 
+            CONTENT_TYPE, 
+            HeaderName::from_static("x-csrf-token")
+        ])
         .allow_credentials(true);
 
-    // Auth sub-router
-    let auth_routes = Router::new()
+    let csrf_layer = 
+        ServiceBuilder::new().layer(axum::middleware::from_fn(validate_csrf));
+
+    // Routes that require CSRF protection (typically unsafe HTTP methods)
+    let csrf_protected_routes = Router::new()
         .route("/signup", post(handle_signup))
         .route("/login", post(handle_login))
         .route("/logout", post(handle_logout))
         .route("/verify", post(verify_email))
-        .route("/me", get(handle_me))
         .route("/forgot-password", post(handle_forgot_password))
-        .route("/verify-reset-token/{token}", get(handle_verify_token))
         .route("/reset-password", post(handle_reset_password))
-        .layer(GovernorLayer {
-            config: auth_governor_conf.clone(),
-        });
+        .layer(csrf_layer.clone()) // Apply CSRF middleware here
+        .layer(GovernorLayer { config: auth_governor_conf.clone() });
 
-    // Full router
+    // Routes that do NOT require CSRF (safe methods and OAuth)
+    let unprotected_routes = Router::new()
+        .route("/me", get(handle_me))
+        .route("/csrf-token", get(get_csrf_token))
+        //.route("/google-login", get(google_login))
+        .route("/verify-reset-token/{token}", get(handle_verify_token));
+
+    // Nest them together
+    let auth_routes = csrf_protected_routes
+        .merge(unprotected_routes)
+        .layer(GovernorLayer { config: auth_governor_conf.clone() });
+
     let app = Router::new()
         .route("/", get(root))
         .route("/api/early-access", post(handle_early_access))
         .route("/api/dashboard", get(dashboard_handler))
-        .nest("/api/auth", auth_routes) // <-- Nest auth routes with their own rate limiter
+        .nest("/api/auth", auth_routes) // <-- your auth routes with CSRF selectively applied
         .with_state(state)
         .layer(TraceLayer::new_for_http())
-        .layer(GovernorLayer {
-            config: global_governor_conf.clone(),
-        })
+        .layer(GovernorLayer { config: global_governor_conf.clone() })
         .layer(cors);
+
 
     let make_service = 
         app.into_make_service_with_connect_info::<SocketAddr>();

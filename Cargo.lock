@@ -541,6 +541,7 @@ dependencies = [
  "axum",
  "axum-extra",
  "axum-server",
+ "base64 0.22.1",
  "chrono",
  "dotenv",
  "http 0.2.12",

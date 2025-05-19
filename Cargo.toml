@@ -7,6 +7,7 @@ edition = "2021"  # 👈 reverting to "2021" for now - most crates aren't tested
 async-trait = "0.1"
 axum = { version = "0.8.4", features = ["macros"] }
 axum-extra = { version = "0.10.1", features = ["cookie"] }
+base64 = "0.22"
 tower = "0.4"
 tokio = { version = "1", features = ["full"] }
 sqlx = { version = "0.8", features = [ "runtime-tokio", "uuid", "postgres", "time", "chrono", "derive" ] }
