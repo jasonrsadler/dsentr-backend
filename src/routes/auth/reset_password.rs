@@ -21,6 +21,7 @@ pub async fn verify_password_reset_token(
     db: &PgPool,
     token: &str,
 ) -> Result<Option<Uuid>, sqlx::Error> {
+    eprintln!("Verifying token: '{}'", token);
     let result = sqlx::query!(
         "SELECT user_id FROM password_resets
          WHERE token = $1 AND expires_at > $2 AND used_at IS NULL",
@@ -29,6 +30,7 @@ pub async fn verify_password_reset_token(
     )
     .fetch_optional(db)
     .await?;
+    eprintln!("Query result: {:?}", result);
 
     Ok(result.map(|r| r.user_id))
 }

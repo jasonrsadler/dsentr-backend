@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use sqlx::{prelude::Type, FromRow};
 
+use crate::routes::auth::signup::OauthProvider;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[sqlx(type_name = "user_role")]       // Matches the Postgres enum name
 #[sqlx(rename_all = "lowercase")]      // Ensures matching strings
@@ -20,6 +22,7 @@ pub struct User {
     pub role: Option<UserRole>,
     pub plan: Option<String>,
     pub company_name: Option<String>,
+    pub oauth_provider: Option<OauthProvider>
 }
 
 #[derive(Debug, Deserialize, Serialize, sqlx::FromRow)]
@@ -32,4 +35,3 @@ pub struct PublicUser {
     pub plan: Option<String>,
     pub company_name: Option<String>
 }
-

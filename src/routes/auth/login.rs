@@ -28,7 +28,7 @@ pub async fn handle_login(
     let pool = &app_state.db;
 
 let user = sqlx::query_as::<_, User>(
-    "SELECT id, email, password_hash, first_name, last_name, role, plan, company_name FROM users WHERE email = $1"
+    "SELECT id, email, password_hash, first_name, last_name, role, plan, oauth_provider, company_name FROM users WHERE email = $1"
 )
 .bind(&payload.email)
 .fetch_optional(pool)
@@ -43,6 +43,16 @@ let user = sqlx::query_as::<_, User>(
         }
     };
 
+    if user.password_hash.trim().is_empty() {
+        let provider = user.oauth_provider;
+        let provider_name = provider
+            .map(|p| p.to_string())
+            .unwrap_or("an OAuth provider".to_string());
+        return JsonResponse::unauthorized(&format!(
+            "This account was created with {} login. Please use that provider to sign in.",
+            provider_name
+        )).into_response();
+    }
     match verify_password(&payload.password, &user.password_hash) {
         Ok(true) => {
             let expires_in = if payload.remember {

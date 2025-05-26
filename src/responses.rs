@@ -1,5 +1,5 @@
 use serde::Serialize;
-use axum::{http::StatusCode, response::IntoResponse, Json};
+use axum::{http::StatusCode, response::{IntoResponse, Redirect}, Json};
 
 #[derive(Serialize)]
 pub struct JsonResponse {
@@ -53,6 +53,28 @@ impl JsonResponse {
         )
     }
 
+    pub fn forbidden(msg: &str) -> impl IntoResponse {
+        (
+            StatusCode::FORBIDDEN,
+            Json(JsonResponse {
+                status: "error".to_string(),
+                success: false,
+                message: msg.to_string(),
+            }),
+        )
+    }
+
+    pub fn bad_gateway(msg: &str) -> impl IntoResponse {
+        (
+            StatusCode::BAD_GATEWAY,
+            Json(JsonResponse {
+                status: "error".to_string(),
+                success: false,
+                message: msg.to_string(),
+            }),
+        )
+    }
+
     pub fn bad_request(msg: &str) -> impl IntoResponse {
         (
             StatusCode::BAD_REQUEST,
@@ -73,5 +95,11 @@ impl JsonResponse {
                 message: msg.to_string(),
             }),
         )
+    }
+
+    pub fn redirect_to_login_with_error(msg: &str) -> impl IntoResponse {
+        let frontend_url = std::env::var("FRONTEND_ORIGIN").unwrap_or_else(|_| "https://localhost:5173".to_string());
+        let redirect_url = format!("{}/login?error={}", frontend_url, urlencoding::encode(msg));
+        Redirect::to(&redirect_url).into_response()
     }
 }

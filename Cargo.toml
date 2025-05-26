@@ -6,7 +6,7 @@ edition = "2021"  # 👈 reverting to "2021" for now - most crates aren't tested
 [dependencies]
 async-trait = "0.1"
 axum = { version = "0.8.4", features = ["macros"] }
-axum-extra = { version = "0.10.1", features = ["cookie"] }
+axum-extra = { version = "0.10.1", features = ["cookie", "typed-header"] }
 base64 = "0.22"
 tower = "0.4"
 tokio = { version = "1", features = ["full"] }
@@ -38,6 +38,8 @@ lettre_email = "0.9.4" # if using simple email formatting (optional)
 rustls = "0.21"
 tokio-rustls = "0.25"
 axum-server = { version = "0.6", optional = true, features = ["tls-rustls"] }
+reqwest = { version = "0.12.15", features = ["json"] }
+urlencoding = "2"
 
 [features]
 default = []
