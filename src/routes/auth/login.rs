@@ -6,7 +6,7 @@ use axum::{
 use axum_extra::extract::cookie::{Cookie, SameSite};
 use serde_json::{json, to_value};
 use uuid::Uuid;
-use crate::{models::user::{PublicUser, User}, responses::JsonResponse, state::AppState, utils::{jwt::create_jwt, password::verify_password}};
+use crate::{responses::JsonResponse, state::AppState, utils::{jwt::create_jwt, password::verify_password}};
 use crate::routes::auth::claims::Claims;
 use serde::Deserialize;
 use chrono::{Utc, Duration};
@@ -25,15 +25,7 @@ pub async fn handle_login(
     State(app_state): State<AppState>,
     Json(payload): Json<LoginPayload>,
 ) -> Response {
-    let pool = &app_state.db;
-
-let user = sqlx::query_as::<_, User>(
-    "SELECT id, email, password_hash, first_name, last_name, role, plan, oauth_provider, company_name FROM users WHERE email = $1"
-)
-.bind(&payload.email)
-.fetch_optional(pool)
-.await;
-
+    let user = app_state.db.find_user_by_email(&payload.email).await;
     let user = match user {
         Ok(Some(record)) => record,
         Ok(None) => return JsonResponse::unauthorized("Invalid credentials").into_response(),
@@ -115,18 +107,12 @@ pub async fn handle_me(
     State(app_state): State<AppState>,
     AuthSession(claims): AuthSession,
 ) -> Response {
-    let pool = &app_state.db;
     let user_id = match Uuid::parse_str(&claims.id) {
         Ok(id) => id,
         Err(_) => return JsonResponse::unauthorized("Invalid user ID").into_response(),
     };
 
-    let user = sqlx::query_as::<_, PublicUser>(
-        "SELECT id, email, first_name, last_name, role, plan, company_name FROM users WHERE id = $1"
-    )
-    .bind(&user_id)
-    .fetch_optional(pool)
-    .await;
+    let user = app_state.db.find_public_user_by_id(user_id).await;
 
     match user {
         Ok(Some(user)) => {

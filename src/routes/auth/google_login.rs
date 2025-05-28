@@ -4,12 +4,10 @@ use axum::{extract::{Query, State}, http::header, response::{IntoResponse, Redir
 use axum_extra::extract::cookie::{Cookie, CookieJar, SameSite};
 use reqwest::Url;
 use serde_json::Value;
-use sqlx::query_as;
 
-use crate::{responses::JsonResponse, routes::auth::signup::OauthProvider, utils::csrf::generate_csrf_token};
+use crate::{models::user::OauthProvider, responses::JsonResponse, utils::csrf::generate_csrf_token};
 use crate::AppState;
 use crate::routes::auth::claims::Claims;
-use crate::models::user::User;
 use crate::utils::jwt::create_jwt;
 
 pub async fn google_login() -> impl IntoResponse {
@@ -122,71 +120,58 @@ pub async fn google_callback(
     let first_name = user_info["given_name"].as_str().unwrap_or("").to_string();
     let last_name = user_info["family_name"].as_str().unwrap_or("").to_string();
 
-    let user = match query_as::<_, User>(
-    r#"SELECT id, email, role, password_hash, first_name, last_name, plan, company_name, oauth_provider FROM users WHERE email = $1"#
-    )
-    .bind(&email)
-    .fetch_optional(&state.db)
-    .await
-    {
-        Ok(Some(user)) => {
-            match (&user.oauth_provider, OauthProvider::Google) {
-                // ✅ user signed up with Google, allow login
-                (Some(OauthProvider::Google), _) => user,
+    let user = match state.db.find_user_by_email(&email).await {
+    Ok(Some(user)) => {
+        match (&user.oauth_provider, OauthProvider::Google) {
+            // ✅ user signed up with Google, allow login
+            (Some(OauthProvider::Google), _) => user,
 
-                // ❌ user signed up with email/password
-                (None, _) => {
-                    return JsonResponse::redirect_to_login_with_error("This account was created using email/password. Please log in with email.").into_response();
-                }
+            // ❌ user signed up with email/password
+            (None, _) => {
+                return JsonResponse::redirect_to_login_with_error(
+                    "This account was created using email/password. Please log in with email."
+                ).into_response();
+            }
 
-                // ❌ user signed up with another OAuth provider (e.g., GitHub)
-                (Some(other), _) => {
-                    let reveal_provider = true;
+            // ❌ user signed up with another OAuth provider (e.g., GitHub)
+            (Some(other), _) => {
+                let reveal_provider = true;
 
-                    if reveal_provider {
-                        return JsonResponse::redirect_to_login_with_error(&format!(
-                            "This account is linked to {:?}. Please use that provider to log in.",
-                            other
-                        ))
-                        .into_response();
-                    } else {
-                        return JsonResponse::redirect_to_login_with_error("Unable to log in with this method. Please use the method you originally signed up with.").into_response();
-                    }
+                if reveal_provider {
+                    return JsonResponse::redirect_to_login_with_error(&format!(
+                        "This account is linked to {:?}. Please use that provider to log in.",
+                        other
+                    )).into_response();
+                } else {
+                    return JsonResponse::redirect_to_login_with_error(
+                        "Unable to log in with this method. Please use the method you originally signed up with."
+                    ).into_response();
                 }
             }
         }
+    }
 
-        Ok(None) => {
-            // First-time login, create user with Google as oauth_provider
-            match query_as::<_, User>(
-                r#"
-                INSERT INTO users (email, password_hash, first_name, last_name, oauth_provider, is_verified, role)
-                VALUES ($1, $2, $3, $4, $5, true, 'user')
-                RETURNING id, role, email, password_hash, first_name, last_name, plan, company_name, oauth_provider
-                "#
-            )
-            .bind(&email)
-            .bind("") // password_hash
-            .bind(&first_name)
-            .bind(&last_name)
-            .bind(OauthProvider::Google)
-            .fetch_one(&state.db)
-            .await
-            {
-                Ok(new_user) => new_user,
-                Err(e) => {
-                    eprintln!("DB create error: {:?}", e);
-                    return JsonResponse::redirect_to_login_with_error("User creation failed").into_response()
-                }
+    Ok(None) => {
+        // First-time login, create user with Google as oauth_provider
+        match state.db.create_user_with_oauth(
+            &email,
+            &first_name,
+            &last_name,
+            OauthProvider::Google,
+        ).await {
+            Ok(new_user) => new_user,
+            Err(e) => {
+                eprintln!("DB create error: {:?}", e);
+                return JsonResponse::redirect_to_login_with_error("User creation failed").into_response();
             }
         }
+    }
 
-        Err(e) => {
-            eprintln!("DB query error: {:?}", e);
-            return JsonResponse::redirect_to_login_with_error("DB query failed").into_response();
-        }
-    };
-
+    Err(e) => {
+        eprintln!("DB query error: {:?}", e);
+        return JsonResponse::redirect_to_login_with_error("DB query failed").into_response();
+    }
+};
     let claims = Claims {
         id: user.id.to_string(),
         role: user.role,

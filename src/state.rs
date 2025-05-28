@@ -1,9 +1,8 @@
-use crate::utils::email::Mailer;
-use sqlx::PgPool;
 use std::sync::Arc;
+use crate::{db::user_repository::UserRepository, utils::email::Mailer};
 
 #[derive(Clone)]
 pub struct AppState {
-    pub db: PgPool,
+    pub db: Arc<dyn UserRepository>,
     pub mailer: Arc<Mailer>,
 }

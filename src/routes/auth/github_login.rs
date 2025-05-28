@@ -6,12 +6,11 @@ use axum_extra::extract::{cookie::{Cookie, SameSite}, CookieJar};
 use serde::{Deserialize, Serialize};
 use reqwest::Client;
 use serde_json::Value;
-use sqlx::query_as;
 
-use crate::{models::user::User, responses::JsonResponse, state::AppState, utils::jwt::create_jwt};
+use crate::{models::user::OauthProvider, responses::JsonResponse, state::AppState, utils::jwt::create_jwt};
 use crate::utils::csrf::generate_csrf_token;
 
-use super::{claims::Claims, signup::OauthProvider};
+use super::claims::Claims;
 
 pub async fn github_login() -> impl IntoResponse {
     let client_id = std::env::var("GITHUB_CLIENT_ID").expect("Missing GITHUB_CLIENT_ID");
@@ -148,12 +147,7 @@ pub async fn github_callback(
     };
 
     // 4. Lookup or create user
-    let user = match query_as::<_, User>(
-    r#"SELECT id, email, role, password_hash, first_name, last_name, plan, company_name, oauth_provider FROM users WHERE email = $1"#
-    )
-    .bind(&email)
-    .fetch_optional(&state.db)
-    .await
+    let user = match state.db.find_user_by_email(&email).await
     {
         Ok(Some(user)) => {
             match (&user.oauth_provider, OauthProvider::Github) {
@@ -184,25 +178,16 @@ pub async fn github_callback(
 
         Ok(None) => {
             // First-time login, create user with Github as oauth_provider
-            match query_as::<_, User>(
-                r#"
-                INSERT INTO users (email, password_hash, first_name, last_name, oauth_provider, is_verified, role)
-                VALUES ($1, $2, $3, $4, $5, true, 'user')
-                RETURNING id, role, email, password_hash, first_name, last_name, plan, company_name, oauth_provider
-                "#
-            )
-            .bind(&email)
-            .bind("") // password_hash
-            .bind(&first_name)
-            .bind(&last_name)
-            .bind(OauthProvider::Github)
-            .fetch_one(&state.db)
-            .await
-            {
+            match state.db.create_user_with_oauth(
+                &email,
+                &first_name,
+                &last_name,
+                OauthProvider::Github,
+            ).await {
                 Ok(new_user) => new_user,
                 Err(e) => {
                     eprintln!("DB create error: {:?}", e);
-                    return JsonResponse::redirect_to_login_with_error("User creation failed").into_response()
+                    return JsonResponse::redirect_to_login_with_error("User creation failed").into_response();
                 }
             }
         }

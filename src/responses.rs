@@ -53,28 +53,6 @@ impl JsonResponse {
         )
     }
 
-    pub fn forbidden(msg: &str) -> impl IntoResponse {
-        (
-            StatusCode::FORBIDDEN,
-            Json(JsonResponse {
-                status: "error".to_string(),
-                success: false,
-                message: msg.to_string(),
-            }),
-        )
-    }
-
-    pub fn bad_gateway(msg: &str) -> impl IntoResponse {
-        (
-            StatusCode::BAD_GATEWAY,
-            Json(JsonResponse {
-                status: "error".to_string(),
-                success: false,
-                message: msg.to_string(),
-            }),
-        )
-    }
-
     pub fn bad_request(msg: &str) -> impl IntoResponse {
         (
             StatusCode::BAD_REQUEST,

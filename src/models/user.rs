@@ -1,7 +1,29 @@
+use core::fmt;
+
 use serde::{Deserialize, Serialize};
 use sqlx::{prelude::Type, FromRow};
 
-use crate::routes::auth::signup::OauthProvider;
+#[derive(sqlx::Type, Debug, Deserialize, Serialize, PartialEq, Eq, Copy, Clone)]
+#[sqlx(type_name = "oauth_provider", rename_all = "lowercase")] // match your PostgreSQL type
+#[serde(rename_all = "lowercase")] // <- Ensures it matches JSON like "google"
+pub enum OauthProvider {
+    Google,
+    Github,
+    Apple,
+    Email
+}
+
+impl fmt::Display for OauthProvider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let s = match self {
+            OauthProvider::Google => "Google",
+            OauthProvider::Github => "GitHub",
+            OauthProvider::Apple => "Apple",
+            OauthProvider::Email => "Email"
+        };
+        write!(f, "{}", s)
+    }
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[sqlx(type_name = "user_role")]       // Matches the Postgres enum name

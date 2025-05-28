@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"  # 👈 reverting to "2021" for now - most crates aren't tested on 2024 yet
 
 [dependencies]
+anyhow = "1.0"
 async-trait = "0.1"
 axum = { version = "0.8.4", features = ["macros"] }
 axum-extra = { version = "0.10.1", features = ["cookie", "typed-header"] }

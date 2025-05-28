@@ -8,12 +8,12 @@ use uuid::Uuid;
 
 use crate::{
     responses::JsonResponse,
-    state::AppState
+    state::AppState,
 };
 
 #[derive(Deserialize)]
 pub struct ForgotPasswordRequest {
-    email: String,
+    pub email: String,
 }
 
 pub async fn handle_forgot_password(
@@ -24,32 +24,27 @@ pub async fn handle_forgot_password(
     let mailer = &state.mailer;
     let email = payload.email.trim();
 
-    if let Ok(Some(user)) = sqlx::query!("SELECT id FROM users WHERE email = $1", email)
-    .fetch_optional(db)
-    .await
-    {
-        let token = Uuid::new_v4().to_string();
-        let expiry = OffsetDateTime::now_utc() + Duration::minutes(30);
+    // Handle Result first
+    match db.find_user_id_by_email(email).await {
+        Ok(Some(user_id)) => {
+            let token = Uuid::new_v4().to_string();
+            let expiry = OffsetDateTime::now_utc() + Duration::minutes(30);
 
-        let insert_result = sqlx::query!(
-            "INSERT INTO password_resets (user_id, token, expires_at)
-            VALUES ($1, $2, $3)",
-            user.id,
-            token,
-            expiry
-        )
-        .execute(db)
-        .await;
-
-        if let Err(e) = insert_result {
-            eprintln!("Failed to insert password reset token: {:?}", e);
-        } else if let Err(e) = mailer.send_reset_email(email, &token).await {
-            eprintln!("Failed to send reset email: {:?}", e);
+            if let Err(e) = db.insert_password_reset_token(user_id.id, &token, expiry).await {
+                eprintln!("Failed to insert password reset token: {:?}", e);
+            } else if let Err(e) = mailer.send_reset_email(email, &token).await {
+                eprintln!("Failed to send reset email: {:?}", e);
+            }
+        }
+        Ok(None) => {
+            // Email not found — silently ignore
+        }
+        Err(e) => {
+            eprintln!("Error looking up user by email: {:?}", e);
+            // Still fall through to generic response
         }
     }
 
-
-    // Always respond with generic success
     JsonResponse::success("If that email exists, a reset link has been sent.")
         .into_response()
 }

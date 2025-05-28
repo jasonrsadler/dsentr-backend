@@ -4,6 +4,7 @@ mod config;
 mod routes;
 pub mod utils;
 mod models;
+mod db;
 
 use axum::{
     http::HeaderName, response::{
@@ -13,6 +14,7 @@ use axum::{
 use axum::http::Method;
 use axum::http::header::{AUTHORIZATION, CONTENT_TYPE};
 use axum::http::HeaderValue;
+use db::postgres_user_repository::PostgresUserRepository;
 use responses::JsonResponse;
 use sqlx::PgPool;
 use tokio::net::TcpListener;
@@ -46,6 +48,7 @@ use routes::auth::{handle_login, handle_signup, verify_email};
 
 use crate::utils::email::Mailer;
 use crate::state::AppState;
+use crate::db::user_repository::UserRepository;
 
 #[cfg(feature = "tls")]
 use axum_server::tls_rustls::RustlsConfig;
@@ -124,13 +127,15 @@ async fn main() {
     );
  
     let config = Config::from_env();
-    let pool = establish_connection(&config.database_url).await;
+    
+    let pg_pool = establish_connection(&config.database_url).await;
+    let user_repo = Arc::new(PostgresUserRepository { pool: pg_pool.clone() }) as Arc<dyn UserRepository>;
 
     // Initialize mailer
     let mailer = Arc::new(Mailer::new().expect("Failed to initialize mailer"));
 
     let state = AppState {
-        db: pool.clone(),
+        db: user_repo,
         mailer,
     };
 
