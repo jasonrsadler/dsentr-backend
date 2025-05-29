@@ -1,54 +1,49 @@
-mod responses;
-mod state;
 mod config;
-mod routes;
-pub mod utils;
-mod models;
 mod db;
+mod models;
+mod responses;
+mod routes;
+mod services;
+mod state;
+pub mod utils;
 
-use axum::{
-    http::HeaderName, response::{
-        IntoResponse, Response
-    }, routing::{get, post}, Router
-};
-use axum::http::Method;
 use axum::http::header::{AUTHORIZATION, CONTENT_TYPE};
 use axum::http::HeaderValue;
-use db::postgres_user_repository::PostgresUserRepository;
-use responses::JsonResponse;
-use sqlx::PgPool;
-use tokio::net::TcpListener;
-use tower::ServiceBuilder;
-use tower_governor::{
-    governor::GovernorConfigBuilder, 
-    GovernorLayer
-};
-use utils::csrf::{get_csrf_token, validate_csrf};
-use std::{net::SocketAddr, sync::Arc};
-use tracing::{info, Level};
-use tracing_subscriber::FmtSubscriber;
-use tower_http::{
-    trace::TraceLayer,
-    cors::CorsLayer
+use axum::http::Method;
+use axum::{
+    http::HeaderName,
+    response::{IntoResponse, Response},
+    routing::{get, post},
+    Router,
 };
 use config::Config;
+use db::postgres_user_repository::PostgresUserRepository;
+use responses::JsonResponse;
+use routes::auth::{handle_login, handle_signup, verify_email};
 use routes::{
     auth::{
-        forgot_password::handle_forgot_password, github_login::{github_callback, github_login}, google_login::{
-            google_callback, google_login
-        }, handle_logout, handle_me, reset_password::{
-            handle_reset_password, 
-            handle_verify_token
-        }
-    }, 
-    dashboard::dashboard_handler, 
-    early_access::handle_early_access
+        forgot_password::handle_forgot_password,
+        github_login::{github_callback, github_login},
+        google_login::{google_callback, google_login},
+        handle_logout, handle_me,
+        reset_password::{handle_reset_password, handle_verify_token},
+    },
+    dashboard::dashboard_handler,
+    early_access::handle_early_access,
 };
-use routes::auth::{handle_login, handle_signup, verify_email};
+use sqlx::PgPool;
+use std::{net::SocketAddr, sync::Arc};
+use tokio::net::TcpListener;
+use tower::ServiceBuilder;
+use tower_governor::{governor::GovernorConfigBuilder, GovernorLayer};
+use tower_http::{cors::CorsLayer, trace::TraceLayer};
+use tracing::{info, Level};
+use tracing_subscriber::FmtSubscriber;
+use utils::csrf::{get_csrf_token, validate_csrf};
 
-use crate::utils::email::Mailer;
-use crate::state::AppState;
 use crate::db::user_repository::UserRepository;
+use crate::services::smtp_mailer::SmtpMailer;
+use crate::state::AppState;
 
 #[cfg(feature = "tls")]
 use axum_server::tls_rustls::RustlsConfig;
@@ -89,18 +84,18 @@ async fn main() {
         .and_then(|v| v.parse::<u32>().ok())
         .unwrap_or(8);
     let global_governor_conf = Arc::new(
-    GovernorConfigBuilder::default()
-        
-        .per_millisecond(rate_limit_ms)
-        .burst_size(rate_limit_burst)
-        .use_headers()
-        .error_handler(|_err| {
-            JsonResponse::too_many_requests(
-                "Too many requests. Please wait a moment and try again."
-            ).into_response()
-        })
-        .finish()
-        .unwrap(),
+        GovernorConfigBuilder::default()
+            .per_millisecond(rate_limit_ms)
+            .burst_size(rate_limit_burst)
+            .use_headers()
+            .error_handler(|_err| {
+                JsonResponse::too_many_requests(
+                    "Too many requests. Please wait a moment and try again.",
+                )
+                .into_response()
+            })
+            .finish()
+            .unwrap(),
     );
 
     let rate_limit_auth_s: u64 = std::env::var("RATE_LIMITER_AUTH_SECONDS")
@@ -113,26 +108,29 @@ async fn main() {
         .unwrap_or(10);
     // Stricter limiter for /api/auth/*
     let auth_governor_conf = Arc::new(
-    GovernorConfigBuilder::default()
-        .per_second(rate_limit_auth_s)              
-        .burst_size(rate_limit_auth_burst)                                
-        .use_headers()                                 
-        .error_handler(|_err| {
-            JsonResponse::too_many_requests(
-                "Too many requests. Please wait a moment and try again."
-            ).into_response()
-        })
-        .finish()
-        .unwrap(),
+        GovernorConfigBuilder::default()
+            .per_second(rate_limit_auth_s)
+            .burst_size(rate_limit_auth_burst)
+            .use_headers()
+            .error_handler(|_err| {
+                JsonResponse::too_many_requests(
+                    "Too many requests. Please wait a moment and try again.",
+                )
+                .into_response()
+            })
+            .finish()
+            .unwrap(),
     );
- 
+
     let config = Config::from_env();
-    
+
     let pg_pool = establish_connection(&config.database_url).await;
-    let user_repo = Arc::new(PostgresUserRepository { pool: pg_pool.clone() }) as Arc<dyn UserRepository>;
+    let user_repo = Arc::new(PostgresUserRepository {
+        pool: pg_pool.clone(),
+    }) as Arc<dyn UserRepository>;
 
     // Initialize mailer
-    let mailer = Arc::new(Mailer::new().expect("Failed to initialize mailer"));
+    let mailer = Arc::new(SmtpMailer::new().expect("Failed to initialize mailer"));
 
     let state = AppState {
         db: user_repo,
@@ -143,14 +141,13 @@ async fn main() {
         .allow_origin(config.frontend_origin.parse::<HeaderValue>().unwrap())
         .allow_methods([Method::GET, Method::POST])
         .allow_headers([
-            AUTHORIZATION, 
-            CONTENT_TYPE, 
-            HeaderName::from_static("x-csrf-token")
+            AUTHORIZATION,
+            CONTENT_TYPE,
+            HeaderName::from_static("x-csrf-token"),
         ])
         .allow_credentials(true);
 
-    let csrf_layer = 
-        ServiceBuilder::new().layer(axum::middleware::from_fn(validate_csrf));
+    let csrf_layer = ServiceBuilder::new().layer(axum::middleware::from_fn(validate_csrf));
 
     // Routes that require CSRF protection (typically unsafe HTTP methods)
     let csrf_protected_routes = Router::new()
@@ -161,7 +158,9 @@ async fn main() {
         .route("/forgot-password", post(handle_forgot_password))
         .route("/reset-password", post(handle_reset_password))
         .layer(csrf_layer.clone()) // Apply CSRF middleware here
-        .layer(GovernorLayer { config: auth_governor_conf.clone() });
+        .layer(GovernorLayer {
+            config: auth_governor_conf.clone(),
+        });
 
     // Routes that do NOT require CSRF (safe methods and OAuth)
     let unprotected_routes = Router::new()
@@ -176,7 +175,9 @@ async fn main() {
     // Nest them together
     let auth_routes = csrf_protected_routes
         .merge(unprotected_routes)
-        .layer(GovernorLayer { config: auth_governor_conf.clone() });
+        .layer(GovernorLayer {
+            config: auth_governor_conf.clone(),
+        });
 
     let app = Router::new()
         .route("/", get(root))
@@ -185,21 +186,22 @@ async fn main() {
         .nest("/api/auth", auth_routes) // <-- your auth routes with CSRF selectively applied
         .with_state(state)
         .layer(TraceLayer::new_for_http())
-        .layer(GovernorLayer { config: global_governor_conf.clone() })
+        .layer(GovernorLayer {
+            config: global_governor_conf.clone(),
+        })
         .layer(cors);
 
-
-    let make_service = 
-        app.into_make_service_with_connect_info::<SocketAddr>();
+    let make_service = app.into_make_service_with_connect_info::<SocketAddr>();
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
     #[cfg(feature = "tls")]
     {
         // TLS: Only run this block when `--features tls` is used
         let tls_config = RustlsConfig::from_pem_file(
-                std::env::var("DEV_CERT_LOCATION").unwrap(), 
-                std::env::var("DEV_KEY_LOCATION").unwrap())
-            .await
-            .expect("Failed to load TLS certs");
+            std::env::var("DEV_CERT_LOCATION").unwrap(),
+            std::env::var("DEV_KEY_LOCATION").unwrap(),
+        )
+        .await
+        .expect("Failed to load TLS certs");
 
         println!("Running with TLS at https://{}", addr);
         let _ = axum_server::bind_rustls(addr, tls_config)
@@ -211,9 +213,7 @@ async fn main() {
 
     let listener = TcpListener::bind(addr).await.unwrap();
     println!("Running without TLS at http://{}", addr);
-    axum::serve(listener, make_service)
-        .await
-        .unwrap();
+    axum::serve(listener, make_service).await.unwrap();
 }
 /// A simple root route.
 async fn root() -> Response {

@@ -10,7 +10,7 @@ pub enum OauthProvider {
     Google,
     Github,
     Apple,
-    Email
+    Email,
 }
 
 impl fmt::Display for OauthProvider {
@@ -19,15 +19,15 @@ impl fmt::Display for OauthProvider {
             OauthProvider::Google => "Google",
             OauthProvider::Github => "GitHub",
             OauthProvider::Apple => "Apple",
-            OauthProvider::Email => "Email"
+            OauthProvider::Email => "Email",
         };
         write!(f, "{}", s)
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[sqlx(type_name = "user_role")]       // Matches the Postgres enum name
-#[sqlx(rename_all = "lowercase")]      // Ensures matching strings
+#[sqlx(type_name = "user_role")] // Matches the Postgres enum name
+#[sqlx(rename_all = "lowercase")] // Ensures matching strings
 pub enum UserRole {
     User,
     Admin,
@@ -44,7 +44,8 @@ pub struct User {
     pub role: Option<UserRole>,
     pub plan: Option<String>,
     pub company_name: Option<String>,
-    pub oauth_provider: Option<OauthProvider>
+    pub oauth_provider: Option<OauthProvider>,
+    pub created_at: time::OffsetDateTime,
 }
 
 #[derive(Debug, Deserialize, Serialize, sqlx::FromRow)]
@@ -55,5 +56,5 @@ pub struct PublicUser {
     pub last_name: String,
     pub role: Option<UserRole>,
     pub plan: Option<String>,
-    pub company_name: Option<String>
+    pub company_name: Option<String>,
 }

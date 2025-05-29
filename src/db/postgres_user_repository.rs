@@ -1,13 +1,9 @@
 use crate::{
-    db::user_repository::UserRepository, models::{
-        signup::SignupPayload, 
-        user::{
-            OauthProvider, 
-            PublicUser, 
-            User, 
-            UserRole
-        }
-    }
+    db::user_repository::UserRepository,
+    models::{
+        signup::SignupPayload,
+        user::{OauthProvider, PublicUser, User, UserRole},
+    },
 };
 use async_trait::async_trait;
 use sqlx::PgPool;
@@ -22,7 +18,7 @@ pub struct PostgresUserRepository {
 
 #[async_trait]
 impl UserRepository for PostgresUserRepository {
-    async fn find_user_id_by_email(&self, email: &str) -> Result<Option<UserId>, anyhow::Error> {
+    async fn find_user_id_by_email(&self, email: &str) -> Result<Option<UserId>, sqlx::Error> {
         let rec = sqlx::query!("SELECT id FROM users WHERE email = $1", email)
             .fetch_optional(&self.pool)
             .await?;
@@ -35,7 +31,7 @@ impl UserRepository for PostgresUserRepository {
         user_id: Uuid,
         token: &str,
         expires_at: OffsetDateTime,
-    ) -> Result<(), anyhow::Error> {
+    ) -> Result<(), sqlx::Error> {
         sqlx::query!(
             "INSERT INTO password_resets (user_id, token, expires_at)
             VALUES ($1, $2, $3)",
@@ -49,11 +45,11 @@ impl UserRepository for PostgresUserRepository {
         Ok(())
     }
 
-    async fn find_user_by_email(&self, email: &str) -> Result<Option<User>, anyhow::Error> {
+    async fn find_user_by_email(&self, email: &str) -> Result<Option<User>, sqlx::Error> {
         let row = sqlx::query_as!(
             User,
             r#"
-            SELECT id, email, role as "role: _", password_hash, first_name, last_name, plan, company_name,  oauth_provider as "oauth_provider: OauthProvider"
+            SELECT id, email, role as "role: _", password_hash, first_name, last_name, plan, company_name, created_at, oauth_provider as "oauth_provider: OauthProvider"
             FROM users
             WHERE email = $1
             "#,
@@ -71,7 +67,7 @@ impl UserRepository for PostgresUserRepository {
         first_name: &str,
         last_name: &str,
         provider: OauthProvider,
-    ) -> Result<User, anyhow::Error> {
+    ) -> Result<User, sqlx::Error> {
         let user = sqlx::query_as!(
             User,
             r#"
@@ -82,9 +78,10 @@ impl UserRepository for PostgresUserRepository {
                 last_name,
                 oauth_provider,
                 is_verified,
-                role
+                role,
+                created_at
             )
-            VALUES ($1, '', $2, $3, $4::oauth_provider, true, 'user'::user_role)
+            VALUES ($1, '', $2, $3, $4::oauth_provider, true, 'user'::user_role, $5)
             RETURNING
                 id,
                 email,
@@ -94,25 +91,30 @@ impl UserRepository for PostgresUserRepository {
                 role as "role: UserRole",
                 plan,
                 company_name,
-                oauth_provider as "oauth_provider: OauthProvider"
+                oauth_provider as "oauth_provider: OauthProvider",
+                created_at
             "#,
             email,
             first_name,
             last_name,
-            provider as OauthProvider
+            provider as OauthProvider,
+            OffsetDateTime::now_utc()
         )
         .fetch_one(&self.pool)
         .await?;
         Ok(user)
     }
 
-    async fn find_public_user_by_id(&self, user_id: Uuid) -> Result<Option<PublicUser>, anyhow::Error> {
+    async fn find_public_user_by_id(
+        &self,
+        user_id: Uuid,
+    ) -> Result<Option<PublicUser>, sqlx::Error> {
         sqlx::query_as::<_, PublicUser>(
             r#"
             SELECT id, email, first_name, last_name, role, plan, company_name
             FROM users
             WHERE id = $1
-            "#
+            "#,
         )
         .bind(user_id)
         .fetch_optional(&self.pool)
@@ -120,7 +122,7 @@ impl UserRepository for PostgresUserRepository {
         .map_err(Into::into)
     }
 
-    async fn verify_password_reset_token(&self, token: &str) -> Result<Option<Uuid>, anyhow::Error> {
+    async fn verify_password_reset_token(&self, token: &str) -> Result<Option<Uuid>, sqlx::Error> {
         let result = sqlx::query!(
             r#"
             SELECT user_id FROM password_resets
@@ -135,7 +137,11 @@ impl UserRepository for PostgresUserRepository {
         Ok(result.map(|r| r.user_id))
     }
 
-    async fn update_user_password(&self, user_id: Uuid, password_hash: &str) -> Result<(), anyhow::Error> {
+    async fn update_user_password(
+        &self,
+        user_id: Uuid,
+        password_hash: &str,
+    ) -> Result<(), sqlx::Error> {
         sqlx::query!(
             "UPDATE users SET password_hash = $1 WHERE id = $2",
             password_hash,
@@ -147,7 +153,7 @@ impl UserRepository for PostgresUserRepository {
         Ok(())
     }
 
-    async fn mark_password_reset_token_used(&self, token: &str) -> Result<(), anyhow::Error> {
+    async fn mark_password_reset_token_used(&self, token: &str) -> Result<(), sqlx::Error> {
         sqlx::query!(
             "UPDATE password_resets SET used_at = $1 WHERE token = $2",
             OffsetDateTime::now_utc(),
@@ -222,17 +228,18 @@ impl UserRepository for PostgresUserRepository {
         .execute(&self.pool)
         .await;
 
-        let _ = sqlx::query!(
-            "DELETE FROM users WHERE id = $1",
-            user_id
-        )
-        .execute(&self.pool)
-        .await;
+        let _ = sqlx::query!("DELETE FROM users WHERE id = $1", user_id)
+            .execute(&self.pool)
+            .await;
 
         Ok(())
     }
 
-    async fn mark_verification_token_used(&self, token: &str, now: OffsetDateTime) -> Result<Option<Uuid>, sqlx::Error> {
+    async fn mark_verification_token_used(
+        &self,
+        token: &str,
+        now: OffsetDateTime,
+    ) -> Result<Option<Uuid>, sqlx::Error> {
         let rec = sqlx::query!(
             r#"
             UPDATE email_verification_tokens
@@ -252,12 +259,9 @@ impl UserRepository for PostgresUserRepository {
     }
 
     async fn set_user_verified(&self, user_id: Uuid) -> Result<(), sqlx::Error> {
-        sqlx::query!(
-            "UPDATE users SET is_verified = true WHERE id = $1",
-            user_id
-        )
-        .execute(&self.pool)
-        .await?;
+        sqlx::query!("UPDATE users SET is_verified = true WHERE id = $1", user_id)
+            .execute(&self.pool)
+            .await?;
         Ok(())
     }
 

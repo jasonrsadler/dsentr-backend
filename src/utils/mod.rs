@@ -1,5 +1,3 @@
-pub mod password;
-pub mod jwt;
-pub mod email;
 pub mod csrf;
-
+pub mod jwt;
+pub mod password;
