@@ -67,7 +67,13 @@ mod tests {
             signup::SignupPayload,
             user::{OauthProvider, PublicUser, User, UserRole},
         },
-        services::smtp_mailer::MockMailer,
+        services::{
+            oauth::{
+                github::mock_github_oauth::MockGitHubOAuth,
+                google::mock_google_oauth::MockGoogleOAuth,
+            },
+            smtp_mailer::MockMailer,
+        },
         state::AppState,
     };
 
@@ -191,7 +197,14 @@ mod tests {
     fn make_app(behavior: MockBehavior) -> Router {
         let repo = Arc::new(MockRepo { behavior });
         let mailer = Arc::new(MockMailer::default());
-        let state = AppState { db: repo, mailer };
+        let google_oauth = Arc::new(MockGoogleOAuth::default());
+        let github_oauth = Arc::new(MockGitHubOAuth::default());
+        let state = AppState {
+            db: repo,
+            mailer,
+            google_oauth,
+            github_oauth,
+        };
 
         Router::new()
             .route("/forgot-password", post(handle_forgot_password))
@@ -291,7 +304,14 @@ mod tests {
             behavior: MockBehavior::UserFound,
         });
         let mailer = Arc::new(MockMailer::default());
-        let state = AppState { db: repo, mailer };
+        let google_oauth = Arc::new(MockGoogleOAuth::default());
+        let github_oauth = Arc::new(MockGitHubOAuth::default());
+        let state = AppState {
+            db: repo,
+            mailer,
+            google_oauth,
+            github_oauth,
+        };
 
         let app = Router::new()
             .route("/forgot-password", post(handle_forgot_password))

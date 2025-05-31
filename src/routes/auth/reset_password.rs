@@ -93,6 +93,9 @@ mod tests {
             signup::SignupPayload,
             user::{OauthProvider, PublicUser, User, UserRole},
         },
+        services::oauth::{
+            github::mock_github_oauth::MockGitHubOAuth, google::mock_google_oauth::MockGoogleOAuth,
+        },
         state::AppState,
     };
 
@@ -225,6 +228,8 @@ mod tests {
         let state = AppState {
             db,
             mailer: Arc::new(crate::services::smtp_mailer::MockMailer::default()),
+            google_oauth: Arc::new(MockGoogleOAuth::default()),
+            github_oauth: Arc::new(MockGitHubOAuth::default()),
         };
 
         Router::new()

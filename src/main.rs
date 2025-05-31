@@ -18,6 +18,7 @@ use axum::{
 };
 use config::Config;
 use db::postgres_user_repository::PostgresUserRepository;
+use reqwest::Client;
 use responses::JsonResponse;
 use routes::auth::{handle_login, handle_signup, verify_email};
 use routes::{
@@ -31,6 +32,8 @@ use routes::{
     dashboard::dashboard_handler,
     early_access::handle_early_access,
 };
+use services::oauth::github::client::GitHubOAuthClient;
+use services::oauth::google::client::GoogleOAuthClient;
 use sqlx::PgPool;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::net::TcpListener;
@@ -131,10 +134,21 @@ async fn main() {
 
     // Initialize mailer
     let mailer = Arc::new(SmtpMailer::new().expect("Failed to initialize mailer"));
+    let http_client = Client::new();
+
+    let google_oauth = Arc::new(GoogleOAuthClient {
+        client: http_client.clone(),
+    });
+
+    let github_oauth = Arc::new(GitHubOAuthClient {
+        client: http_client.clone(),
+    });
 
     let state = AppState {
         db: user_repo,
         mailer,
+        google_oauth,
+        github_oauth,
     };
 
     let cors = CorsLayer::new()
