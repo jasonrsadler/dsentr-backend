@@ -1,4 +1,4 @@
-use crate::models::user::{OauthProvider, User};
+use crate::models::user::{OauthProvider, PublicUser, User};
 use async_trait::async_trait;
 use uuid::Uuid;
 
@@ -9,11 +9,15 @@ use crate::models::signup::SignupPayload;
 pub struct MockDb {
     pub find_user_result: Option<User>,
     pub create_user_result: Option<User>,
+    pub should_fail: bool,
 }
 
 #[async_trait]
 impl UserRepository for MockDb {
     async fn find_user_by_email(&self, _: &str) -> Result<Option<User>, sqlx::Error> {
+        if self.should_fail {
+            return Err(sqlx::Error::Protocol("Mock DB failure".into()));
+        }
         Ok(self.find_user_result.clone())
     }
 
@@ -42,9 +46,22 @@ impl UserRepository for MockDb {
     }
     async fn find_public_user_by_id(
         &self,
-        _: Uuid,
-    ) -> Result<Option<crate::models::user::PublicUser>, sqlx::Error> {
-        todo!()
+        user_id: Uuid,
+    ) -> Result<Option<PublicUser>, sqlx::Error> {
+        if let Some(user) = &self.find_user_result {
+            if user.id == user_id {
+                return Ok(Some(PublicUser {
+                    id: user.id,
+                    email: user.email.clone(),
+                    first_name: user.first_name.clone(),
+                    last_name: user.last_name.clone(),
+                    role: user.role.clone(),
+                    plan: user.plan.clone(),
+                    company_name: user.company_name.clone(),
+                }));
+            }
+        }
+        Ok(None)
     }
     async fn verify_password_reset_token(&self, _: &str) -> Result<Option<Uuid>, sqlx::Error> {
         todo!()
