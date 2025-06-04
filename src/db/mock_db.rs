@@ -1,15 +1,32 @@
 use crate::models::user::{OauthProvider, PublicUser, User};
 use async_trait::async_trait;
+use time::OffsetDateTime;
 use uuid::Uuid;
 
 use super::user_repository::{UserId, UserRepository};
 use crate::models::signup::SignupPayload;
 
-#[derive(Default)]
 pub struct MockDb {
     pub find_user_result: Option<User>,
     pub create_user_result: Option<User>,
     pub should_fail: bool,
+    pub mark_verification_token_fn:
+        Box<dyn Fn(&str, OffsetDateTime) -> Result<Option<Uuid>, sqlx::Error> + Send + Sync>,
+    pub set_user_verified_fn: Box<dyn Fn(Uuid) -> Result<(), sqlx::Error> + Send + Sync>,
+    pub insert_early_access_email_fn: Box<dyn Fn(String) -> Result<(), sqlx::Error> + Send + Sync>,
+}
+
+impl Default for MockDb {
+    fn default() -> Self {
+        Self {
+            find_user_result: None,
+            create_user_result: None,
+            should_fail: false,
+            mark_verification_token_fn: Box::new(|_, _| Ok(Some(Uuid::new_v4()))), // manually initialize all non-Default fields
+            set_user_verified_fn: Box::new(|_| Ok(())),
+            insert_early_access_email_fn: Box::new(|_| Ok(())),
+        }
+    }
 }
 
 #[async_trait]
@@ -96,15 +113,15 @@ impl UserRepository for MockDb {
     }
     async fn mark_verification_token_used(
         &self,
-        _: &str,
-        _: time::OffsetDateTime,
+        token: &str,
+        time: time::OffsetDateTime,
     ) -> Result<Option<Uuid>, sqlx::Error> {
-        todo!()
+        (self.mark_verification_token_fn)(token, time)
     }
-    async fn set_user_verified(&self, _: Uuid) -> Result<(), sqlx::Error> {
-        todo!()
+    async fn set_user_verified(&self, user_id: Uuid) -> Result<(), sqlx::Error> {
+        (self.set_user_verified_fn)(user_id)
     }
-    async fn insert_early_access_email(&self, _: &str) -> Result<(), sqlx::Error> {
-        todo!()
+    async fn insert_early_access_email(&self, email: &str) -> Result<(), sqlx::Error> {
+        (self.insert_early_access_email_fn)(email.to_string())
     }
 }

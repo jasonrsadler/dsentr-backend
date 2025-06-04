@@ -1,8 +1,8 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::user::OauthProvider;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Serialize)]
 pub struct SignupPayload {
     pub email: String,
     pub password: String,
@@ -12,5 +12,5 @@ pub struct SignupPayload {
     pub country: Option<String>,
     pub tax_id: Option<String>,
     #[serde(default)]
-    pub provider: Option<OauthProvider>
+    pub provider: Option<OauthProvider>,
 }

@@ -15,6 +15,9 @@ pub struct MockMailer {
 #[async_trait]
 impl Mailer for MockMailer {
     async fn send_verification_email(&self, to: &str, token: &str) -> Result<(), MailError> {
+        if self.fail_send {
+            return Err(MailError::Other("mock failure".into()));
+        }
         self.sent_verification_emails
             .lock()
             .unwrap()
