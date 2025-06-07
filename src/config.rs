@@ -16,8 +16,8 @@ impl Config {
             .expect("FRONTEND_ORIGIN must be set");
 
         Config {
-            database_url: database_url,
-            frontend_origin: frontend_origin
+            database_url,
+            frontend_origin
         }
     }
 }

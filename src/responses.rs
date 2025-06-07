@@ -102,7 +102,7 @@ mod tests {
         let body = axum::body::to_bytes(resp.into_body(), 1024).await.unwrap();
         let json: JsonResponse = from_slice(&body).unwrap();
         assert_eq!(json.status, "success");
-        assert_eq!(json.success, true);
+        assert!(json.success);
         assert_eq!(json.message, "ok");
     }
 

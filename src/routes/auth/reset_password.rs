@@ -246,7 +246,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::builder()
-                    .uri(&format!("/reset-password/{token}"))
+                    .uri(format!("/reset-password/{token}"))
                     .method("GET")
                     .body(Body::empty())
                     .unwrap(),
@@ -268,7 +268,7 @@ mod tests {
         let response = app
             .oneshot(
                 Request::builder()
-                    .uri(&format!("/reset-password/{token}"))
+                    .uri(format!("/reset-password/{token}"))
                     .method("GET")
                     .body(Body::empty())
                     .unwrap(),

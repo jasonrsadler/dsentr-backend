@@ -116,7 +116,7 @@ pub async fn google_callback(
     let first_name = user_info["given_name"].as_str().unwrap_or("").to_string();
     let last_name = user_info["family_name"].as_str().unwrap_or("").to_string();
 
-    let user = match state.db.find_user_by_email(&email).await {
+    let user = match state.db.find_user_by_email(email).await {
         Ok(Some(user)) => {
             match (&user.oauth_provider, OauthProvider::Google) {
                 // ✅ user signed up with Google, allow login
@@ -153,7 +153,7 @@ pub async fn google_callback(
             // First-time login, create user with Google as oauth_provider
             match state
                 .db
-                .create_user_with_oauth(&email, &first_name, &last_name, OauthProvider::Google)
+                .create_user_with_oauth(email, &first_name, &last_name, OauthProvider::Google)
                 .await
             {
                 Ok(new_user) => new_user,

@@ -54,9 +54,9 @@ pub trait Mailer: Send + Sync {
 }
 
 mod mock_mailer;
-mod smtp_mailer;
+mod smtp_impl;
 
 use lettre::address::AddressError;
 #[allow(unused_imports)]
 pub use mock_mailer::MockMailer;
-pub use smtp_mailer::SmtpMailer;
+pub use smtp_impl::SmtpMailer;

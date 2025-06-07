@@ -6,12 +6,14 @@ use uuid::Uuid;
 use super::user_repository::{UserId, UserRepository};
 use crate::models::signup::SignupPayload;
 
+type MarkVerificationTokenFn =
+    Box<dyn Fn(&str, OffsetDateTime) -> Result<Option<Uuid>, sqlx::Error> + Send + Sync>;
+
 pub struct MockDb {
     pub find_user_result: Option<User>,
     pub create_user_result: Option<User>,
     pub should_fail: bool,
-    pub mark_verification_token_fn:
-        Box<dyn Fn(&str, OffsetDateTime) -> Result<Option<Uuid>, sqlx::Error> + Send + Sync>,
+    pub mark_verification_token_fn: MarkVerificationTokenFn,
     pub set_user_verified_fn: Box<dyn Fn(Uuid) -> Result<(), sqlx::Error> + Send + Sync>,
     pub insert_early_access_email_fn: Box<dyn Fn(String) -> Result<(), sqlx::Error> + Send + Sync>,
 }
@@ -72,7 +74,7 @@ impl UserRepository for MockDb {
                     email: user.email.clone(),
                     first_name: user.first_name.clone(),
                     last_name: user.last_name.clone(),
-                    role: user.role.clone(),
+                    role: user.role,
                     plan: user.plan.clone(),
                     company_name: user.company_name.clone(),
                 }));

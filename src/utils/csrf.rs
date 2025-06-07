@@ -21,6 +21,12 @@ use rand_core::RngCore;
 
 pub struct CsrfLayer;
 
+impl Default for CsrfLayer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl CsrfLayer {
     pub fn new() -> Self {
         Self
@@ -73,7 +79,7 @@ fn extract_csrf_from_cookie(cookie_str: &str) -> Option<String> {
 pub fn generate_csrf_token() -> String {
     let mut bytes = [0u8; 32]; // 256-bit token
     rand_core::OsRng.fill_bytes(&mut bytes);
-    BASE64_URL_SAFE_NO_PAD.encode(&bytes)
+    BASE64_URL_SAFE_NO_PAD.encode(bytes)
 }
 
 pub async fn get_csrf_token() -> Response {

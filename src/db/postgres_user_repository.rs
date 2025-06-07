@@ -118,9 +118,7 @@ impl UserRepository for PostgresUserRepository {
         )
         .bind(user_id)
         .fetch_optional(&self.pool)
-        .await
-        .map_err(Into::into)
-    }
+        .await}
 
     async fn verify_password_reset_token(&self, token: &str) -> Result<Option<Uuid>, sqlx::Error> {
         let result = sqlx::query!(
